@@ -1,0 +1,153 @@
+LCH_EOD_trades_ingest_long: |
+  SELECT
+        record_id,
+        trade_date,
+        participant,
+        session_id,
+        CASE 
+            WHEN exec_type = 'TRADE' THEN '0'
+            WHEN exec_type = 'TRADE_CORRECT' THEN '1'
+            ELSE NULL -- Handle other values if needed
+        END AS exec_type,
+        msg_type,
+        trade_report_type,
+        ord_status,
+        trd_rpt_status,
+        multi_leg_reporting_type,
+        CASE 
+            WHEN trd_type = 'BLOCK_TRADE' OR trd_type = 'EFP' THEN 'BLOCK_TRADE'
+            WHEN trd_type = 'REGULAR_TRADE' THEN 'TRADE'
+            ELSE NULL -- Handle other values if needed
+        END AS trd_type,
+        LEFT(transact_time, POSITION('.' IN transact_time) - 1) AS transact_time,
+        trans_bkd_time,
+        CAST(side AS INTEGER) AS side,
+        CAST(last_qty AS INTEGER) AS last_qty,
+        security_id,
+        instrument,
+        maturity_date,
+        strike_price,
+        put_or_call,
+        CAST(last_px AS INTEGER) AS last_px,
+        clord_id,
+        sub_trade_id,
+        exec_id,
+        clearingtradeid,
+        one_off_shared_key,
+        party_id2,
+        security_alt_id1,
+        security_alt_id3,
+        leg_security_alt_id1,
+        ex_destination,
+        currency
+    FROM gfo.orders_and_executions_info
+    WHERE trade_date = '{trade_date_str}'
+    AND exec_type IN ('TRADE', 'TRADE_CANCEL')
+    AND instrument <> 'GFBTFS'
+    AND clearingtradeid IS NOT NULL
+    AND side = '1'
+    ORDER BY transact_time;
+
+LCH_EOD_trades_ingest_short: |
+    SELECT
+        record_id,
+        trade_date,
+        participant,
+        session_id,
+        CASE 
+            WHEN exec_type = 'TRADE' THEN '0'
+            WHEN exec_type = 'TRADE_CORRECT' THEN '1'
+            ELSE NULL -- Handle other values if needed
+        END AS exec_type,
+        msg_type,
+        trade_report_type,
+        ord_status,
+        trd_rpt_status,
+        multi_leg_reporting_type,
+        CASE 
+            WHEN trd_type = 'BLOCK_TRADE' OR trd_type = 'EFP' THEN 'BLOCK_TRADE'
+            WHEN trd_type = 'REGULAR_TRADE' THEN 'TRADE'
+            ELSE NULL -- Handle other values if needed
+        END AS trd_type,
+        LEFT(transact_time, POSITION('.' IN transact_time) - 1) AS transact_time,
+        trans_bkd_time,
+        CAST(side AS INTEGER) AS side,
+        CAST(last_qty AS INTEGER) AS last_qty,
+        security_id,
+        instrument,
+        maturity_date,
+        strike_price,
+        put_or_call,
+        CAST(last_px AS INTEGER) AS last_px,
+        clord_id,
+        sub_trade_id,
+        exec_id,
+        clearingtradeid,
+        one_off_shared_key,
+        party_id2,
+        security_alt_id1,
+        security_alt_id3,
+        leg_security_alt_id1,
+        ex_destination,
+        currency
+    FROM gfo.orders_and_executions_info
+    WHERE trade_date = '{trade_date_str}'
+    AND exec_type IN ('TRADE', 'TRADE_CANCEL')
+    AND instrument <> 'GFBTFS'
+    AND clearingtradeid IS NOT NULL
+    AND side = '2'
+    ORDER BY transact_time;
+
+LCH_EOD_prices_ingest: |
+  SELECT 
+      trade_date,
+      ROUND(price, 2) AS price,
+      price_type,
+      isin,
+      gfo_x_instrument_mnemonic,
+      CASE 
+          WHEN call_put = 'P' THEN 0
+          WHEN call_put = 'C' THEN 1
+          ELSE NULL
+      END AS call_put,
+      strike_price
+  FROM 
+      gfo.settlement_prices
+  INNER JOIN 
+      gfo.gfo_instruments 
+  ON 
+      gfo.settlement_prices.gfo_id = gfo_instruments.gfo_id
+  WHERE 
+      gfo.settlement_prices.trade_date = '{trade_date_str}'
+  AND 
+      isin IS NOT NULL 
+  AND 
+      isin <> '';
+
+LCH_EOD_instruments_ingest: |
+  SELECT 
+      instrument_status, 
+      gfo_x_instrument_mnemonic,
+      isin,
+      instrument_name,
+      product_type,
+      exercise_type,
+      product_name,
+      call_put,
+      lch_underlying_mnemonic_code,
+      ROUND(strike_price, 2) AS strike_price,
+      traded_ccy,
+      expiry_date,
+      contract_effective_datetime,
+      contract_creation_date,
+      contract_size
+  FROM gfo.gfo_instruments 
+  WHERE 
+      (instrument_status = 'ACTIVE' 
+      OR (instrument_status = 'EXPIRED' AND expiry_date = '{trade_date_str}') 
+      OR (instrument_status = 'INACTIVE' AND contract_effective_datetime = '{t_plus_1_date_str} 00:00:00.000'))
+      AND product_type <> 'S'
+      AND product_type != 'S'
+  ORDER BY 
+      product_type ASC, 
+      expiry_date ASC;
