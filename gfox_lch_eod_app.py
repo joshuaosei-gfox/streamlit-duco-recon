@@ -14,7 +14,46 @@ import csv
 import json
 import time
 
-# ------------------------------- Helper Functions (Used in Multiple Apps) -------------------------------
+# -------------------------- Global Variables --------------------------
+
+# Database connection parameters
+DB_PARAMS = {
+    "dbname": "gfox",
+    "user": "gfox",
+    "password": "gfox1234",
+    "host": "10.16.1.10",
+    "port": "5432"
+}
+
+# Directory paths
+GFOX_BASE_DIRECTORY = r"Z:\DUCO LCH Recon App\PROD\File Creation\API\GFOX EOD Files"
+LCH_BASE_DIRECTORY = r"Z:\DUCO LCH Recon App\PROD\File Creation\API\LCH EOD Files"
+LCH_OUTBOUND_URL = "http://10.16.1.13:20201/outbound/"
+
+# DUCO API variables
+DUCO_SUBMISSION_URL = "https://gfo-x.duco-app.com/api/submissions"
+DUCO_API_HEADERS = {
+    "Authorization": "token 202e642811a164533ebdda6cc8f258bfNDc",
+    "Accept": "application/vnd.duco-cube.v3+json"
+}
+DUCO_PROCESSES_URL = "https://gfo-x.duco-app.com/processes"
+
+# File patterns for submissions
+FILE_PATTERNS = {
+    "TRADES_LONG": {"GFOX": r"LCH EOD Trades Ingest Long_\d{4}-\d{2}-\d{2}\.csv", 
+                    "LCH": r"\d{8}_RECO_GFOX_LCHC_EOD_PRD_\d{14}_LONG_DUCO\.csv"},
+
+    "TRADES_SHORT": {"GFOX": r"LCH EOD Trades Ingest Short_\d{4}-\d{2}-\d{2}\.csv",
+                     "LCH": r"\d{8}_RECO_GFOX_LCHC_EOD_PRD_\d{14}_SHORT_DUCO\.csv"},
+
+    "PRICES": {"GFOX": r"LCH EOD Prices Ingest_\d{4}-\d{2}-\d{2}\.csv",
+               "LCH": r"PRICE_GFOX_PRD_\d{8}_DUCO\.csv"},
+
+    "INSTRUMENTS": {"GFOX": r"LCH EOD Instruments Ingest_\d{4}-\d{2}-\d{2}\.csv",
+                    "LCH": r"INSTRUMENT_GFOX_PRD_\d{8}\.csv"}
+}
+
+# -------------------------- Helper Functions --------------------------
 
 # Configure logging
 logging.basicConfig(filename='query_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -32,7 +71,7 @@ def streamlit_logger(log_message, log_widget):
         return current_logs
     return f"{log_message}\n"
 
-# ------------------------------- App 1: GFOX EOD File Extraction -------------------------------
+# -------------------------- App 1: GFOX EOD File Extraction --------------------------
 
 def gfox_eod_file_extraction():
     st.title("GFOX EOD File Extraction")
@@ -45,21 +84,12 @@ def gfox_eod_file_extraction():
 
     queries = load_queries_from_yaml('queries.yaml')
 
-    # Hardcoded database connection details
-    db_params = {
-        "dbname": "gfox",
-        "user": "gfox",
-        "password": "gfox1234",
-        "host": "10.16.1.10",
-        "port": "5432"
-    }
-
     # Function to check database connection and provide feedback to the user
     def check_db_connection():
         try:
-            conn = psycopg2.connect(**db_params)
+            conn = psycopg2.connect(**DB_PARAMS)
             conn.close()
-            st.success(f"Successfully connected to the database at {db_params['host']}:{db_params['port']}")
+            st.success(f"Successfully connected to the database at {DB_PARAMS['host']}:{DB_PARAMS['port']}")
             return True
         except Exception as e:
             st.error(f"Failed to connect to the database: {str(e)}")
@@ -81,7 +111,7 @@ def gfox_eod_file_extraction():
     def export_data(query, filename, save_directory, log_widget):
         try:
             log_query(query)
-            conn = psycopg2.connect(**db_params)
+            conn = psycopg2.connect(**DB_PARAMS)
             cur = conn.cursor()
             cur.execute(query)
             data = cur.fetchall()
@@ -118,10 +148,7 @@ def gfox_eod_file_extraction():
             folder_date_str = trade_date.strftime('%Y%m%d')
 
             # Define the base save directory
-            base_directory = r"Z:\DUCO LCH Recon App\PROD\File Creation\API\GFOX EOD Files"
-
-            # Create the specific folder for the trade date
-            save_directory = os.path.join(base_directory, folder_date_str)
+            save_directory = os.path.join(GFOX_BASE_DIRECTORY, folder_date_str)
 
             if trade_date.weekday() == 4:
                 t_plus_1_date = trade_date + timedelta(days=3)
@@ -182,8 +209,7 @@ def gfox_eod_file_extraction():
 
     trade_date = datetime.strptime(date_input, '%Y-%m-%d')
     folder_date_str = trade_date.strftime('%Y%m%d')
-    base_directory = r"Z:\DUCO LCH Recon App\PROD\File Creation\API\GFOX EOD Files"
-    save_directory = os.path.join(base_directory, folder_date_str)
+    save_directory = os.path.join(GFOX_BASE_DIRECTORY, folder_date_str)
 
     # Add GFOX EOD File Extraction Button
     if st.button('GFOX EOD File Extraction'):
@@ -201,7 +227,7 @@ def gfox_eod_file_extraction():
         log_text = streamlit_logger(f"Extracting GFOX Trades for {date_input}", log_text)
         query = queries['LCH_EOD_trades_ingest_short'].format(trade_date_str=date_input)
         log_text = export_data(query, f"LCH EOD Trades Ingest Short_{date_input}.csv", save_directory, log_text)
-        log_widget.text_area("Logs", log_text, height=250)    
+        log_widget.text_area("Logs", log_text, height=250)
 
     if st.button('Extract GFOX Prices Only'):
         log_text = streamlit_logger(f"Extracting GFOX Prices for {date_input}", log_text)
@@ -213,7 +239,6 @@ def gfox_eod_file_extraction():
     if st.button('Extract GFOX Instruments Only'):
         log_text = streamlit_logger(f"Extracting GFOX Instruments for {date_input}", log_text)
 
-        # Calculate t_plus_1_date_str for instruments
         if trade_date.weekday() == 4:
             t_plus_1_date = trade_date + timedelta(days=3)
         else:
@@ -224,7 +249,7 @@ def gfox_eod_file_extraction():
         log_text = export_data(query, f"LCH EOD Instruments Ingest_{date_input}.csv", save_directory, log_text)
         log_widget.text_area("Logs", log_text, height=250)
 
-# ------------------------------- App 2: LCH EOD File Extraction -------------------------------
+# -------------------------- App 2: LCH EOD File Extraction --------------------------
 
 def lch_eod_file_extraction():
     st.title("LCH EOD File Extraction")
@@ -243,7 +268,7 @@ def lch_eod_file_extraction():
                 st.error(f"Failed to connect to the URL. Status code: {response.status_code}", icon="⛔")  # Red error dialog box
                 st.session_state.url_connection_status = False
         except Exception as e:
-            st.error(f"Error connecting to the URL,: {str(e)}")  # Red error dialog box for exceptions
+            st.error(f"Error connecting to the URL: {str(e)}")  # Red error dialog box for exceptions
             st.session_state.url_connection_status = False
 
     # Function to validate the input date format
@@ -268,7 +293,7 @@ def lch_eod_file_extraction():
     date_input = st.text_input('Enter the Trade Date (YYYY-MM-DD):', label_visibility='visible', max_chars=10)
 
     # Base URL for LCH EOD files
-    url = "http://10.16.6.13:20201/outbound/"
+    url = LCH_OUTBOUND_URL  # Use the global variable for the LCH URL
 
     if date_input:
         if not validate_date_input(date_input):
@@ -296,7 +321,7 @@ def lch_eod_file_extraction():
             date_str = date_obj.strftime('%Y%m%d')  # Convert to yyyymmdd format
 
             # Define the base directory
-            base_directory = r"Z:\DUCO LCH Recon App\PROD\File Creation\API\LCH EOD Files"
+            base_directory = LCH_BASE_DIRECTORY
             download_directory = os.path.join(base_directory, date_str)
 
             # Check if the directory exists for the entered date, if not, create it
@@ -316,12 +341,12 @@ def lch_eod_file_extraction():
         except ValueError:
             st.error("Please enter a valid date in the format YYYY-MM-DD.")
             return
-        
-           # Function to log messages with clear sections
+
+        # Function to log messages with clear sections
         def log_message(message, log_text):
             log_text += f"{message}\n"
             return log_text
-        
+
         # Function to update the log widget
         def update_log_widget(log_text, log_widget):
             log_widget.text_area("Logs", log_text, height=600)
@@ -353,7 +378,7 @@ def lch_eod_file_extraction():
         # Text area for log display
         log_widget = st.empty()
         log_text = ""
-        
+
         # Function to list files from the directory
         def list_files_in_directory(url, log_widget):
             log_widget = streamlit_logger(f"Accessing URL: {url}\n", log_widget)
@@ -633,26 +658,17 @@ def lch_eod_file_extraction():
         if st.button('Extract LCH Instruments Only'):
             process_individual_files("INSTRUMENTS", date_input, url, download_directory, log_text, log_widget)
 
-# ------------------------------- App 3: File Submission to DUCO -------------------------------
+# -------------------------- App 3: File Submission to DUCO --------------------------
 
 def file_submission_to_duco():
     st.title("File Submission to DUCO")
 
-    # Define the API endpoint (including the correct path)
-    url = "https://gfo-x.duco-app.com/api/submissions"  # Replace with your actual endpoint URL
-
-    # Define the headers including the API token and content type
-    headers = {
-        "Authorization": "token 202e642811a164533ebdda6cc8f258bfNDc",  # Replace with your actual token
-        "Accept": "application/vnd.duco-cube.v3+json"
-    }
-
     def validate_date_input(date_input):
-        if len(date_input) != 10:  # Ensure the date length is exactly 10 characters
+        if len(date_input) != 10:
             st.error("Date must be exactly 10 characters long (YYYY-MM-DD).")
             return False
 
-        date_regex = r'^\d{4}-\d{2}-\d{2}$'  # Regular expression for YYYY-MM-DD format
+        date_regex = r'^\d{4}-\d{2}-\d{2}$'
         if not re.match(date_regex, date_input):
             st.error("Please enter the date in the correct format (YYYY-MM-DD).")
             return False
@@ -667,7 +683,6 @@ def file_submission_to_duco():
             st.error("Invalid date. Please enter a real date in the correct format (YYYY-MM-DD).")
             return False
 
-    # Ask user for the date to filter the files
     date_input = st.text_input('Enter the File Date (YYYY-MM-DD):', max_chars=10)
 
     if date_input:
@@ -676,9 +691,8 @@ def file_submission_to_duco():
                 date_obj = datetime.strptime(date_input, '%Y-%m-%d')
                 date_str = date_obj.strftime('%Y%m%d')
 
-                # Define file directories
-                lch_directory = fr"Z:\DUCO LCH Recon App\PROD\File Creation\API\LCH EOD Files\{date_str}"
-                gfox_directory = fr"Z:\DUCO LCH Recon App\PROD\File Creation\API\GFOX EOD Files\{date_str}"
+                lch_directory = os.path.join(LCH_BASE_DIRECTORY, date_str)
+                gfox_directory = os.path.join(GFOX_BASE_DIRECTORY, date_str)
 
             except ValueError:
                 st.error("Please enter a valid date in the format YYYY-MM-DD.")
@@ -687,15 +701,7 @@ def file_submission_to_duco():
         st.error("Please enter a date to proceed.")
         return
 
-    file_patterns = {
-        "TRADES_LONG": {"GFOX": r"LCH EOD Trades Ingest Long_\d{4}-\d{2}-\d{2}\.csv", "LCH": r"\d{8}_RECO_GFOX_LCHC_EOD_PRD_\d{14}_LONG_DUCO\.csv"},
-        "TRADES_SHORT": {"GFOX": r"LCH EOD Trades Ingest Short_\d{4}-\d{2}-\d{2}\.csv", "LCH": r"\d{8}_RECO_GFOX_LCHC_EOD_PRD_\d{14}_SHORT_DUCO\.csv"},
-        "PRICES": {"GFOX": r"LCH EOD Prices Ingest_\d{4}-\d{2}-\d{2}\.csv", "LCH": r"PRICE_GFOX_PRD_\d{8}_DUCO\.csv"},
-        "INSTRUMENTS": {"GFOX": r"LCH EOD Instruments Ingest_\d{4}-\d{2}-\d{2}\.csv", "LCH": r"INSTRUMENT_GFOX_PRD_\d{8}\.csv"}
-    }
-
     def find_file(directory, pattern, status_container):
-        """Find a file in the directory that matches the given regex pattern."""
         status_container.update(label=f"Searching for files in {directory}...", state="running")
         for filename in os.listdir(directory):
             if re.match(pattern, filename):
@@ -705,18 +711,15 @@ def file_submission_to_duco():
         return None
 
     def submit_file(file_path, status_container):
-        """Submit the file to the API."""
         try:
             status_container.update(label=f"Submitting {os.path.basename(file_path)} to DUCO...", state="running")
             with open(file_path, "rb") as file:
                 files = {"file": file}
-                response = requests.post(url, headers=headers, files=files)
+                response = requests.post(DUCO_SUBMISSION_URL, headers=DUCO_API_HEADERS, files=files)
 
-            # Check if the response was successful
             if response and response.status_code == 200:
-                response_data = response.json()  # Parse JSON response
+                response_data = response.json()
 
-                # Extract relevant data from the response
                 submission_id = response_data.get('id', 'N/A')
                 name = response_data.get('name', 'N/A')
                 submission_time = response_data.get('submission_time', 'N/A')
@@ -726,7 +729,6 @@ def file_submission_to_duco():
                 runs_triggered = response_data.get('runs_triggered', [])
                 processes_awaiting_input = response_data.get('processes_awaiting_input', [])
 
-                # Create the detailed output string with line breaks
                 detailed_info = (
                     f"**File submitted successfully!**\n\n"
                     f"**ID**: {submission_id}\n\n"
@@ -738,7 +740,6 @@ def file_submission_to_duco():
                     f"**Runs Triggered**: {len(runs_triggered)}\n\n"
                 )
 
-                # Add Runs Triggered details if available
                 if runs_triggered:
                     detailed_info += "\n**Runs Triggered**:\n\n"
                     for run in runs_triggered:
@@ -748,7 +749,6 @@ def file_submission_to_duco():
                             f"  **Input Name**: {run.get('input_name', 'N/A')}\n\n"
                         )
 
-                # Add Processes Awaiting Input if available
                 if processes_awaiting_input:
                     detailed_info += "\n**Processes Awaiting Input**:\n\n"
                     for process in processes_awaiting_input:
@@ -758,7 +758,6 @@ def file_submission_to_duco():
                             f"- **File Name Pattern**: {awaiting.get('file_name_pattern', 'N/A')}\n\n"
                         )
 
-                # Update status container with detailed response info
                 status_container.update(label=detailed_info, state="complete")
 
             else:
@@ -769,48 +768,40 @@ def file_submission_to_duco():
             return None
 
     def process_file_submission(file_type, source, directory, pattern):
-        """Process and submit files from a specific directory."""
         with st.status(label=f"Processing {file_type} {source} files...", state="running") as status_container:
             file_path = find_file(directory, pattern, status_container)
             if file_path:
                 submit_file(file_path, status_container)
 
-    # Add DUCO Submission Button
     if st.button('Submit Files to DUCO'):
-        for file_type, patterns in file_patterns.items():
+        for file_type, patterns in FILE_PATTERNS.items():
             process_file_submission(file_type, "GFOX", gfox_directory, patterns["GFOX"])
             process_file_submission(file_type, "LCH", lch_directory, patterns["LCH"])
 
-    # Additional buttons for individual file submission
     if st.button('Submit TRADES_LONG to DUCO'):
-        process_file_submission('TRADES_LONG', "GFOX", gfox_directory, file_patterns['TRADES_LONG']['GFOX'])
-        process_file_submission('TRADES_LONG', "LCH", lch_directory, file_patterns['TRADES_LONG']['LCH'])
+        process_file_submission('TRADES_LONG', "GFOX", gfox_directory, FILE_PATTERNS['TRADES_LONG']['GFOX'])
+        process_file_submission('TRADES_LONG', "LCH", lch_directory, FILE_PATTERNS['TRADES_LONG']['LCH'])
 
     if st.button('Submit TRADES_SHORT to DUCO'):
-        process_file_submission('TRADES_SHORT', "GFOX", gfox_directory, file_patterns['TRADES_SHORT']['GFOX'])
-        process_file_submission('TRADES_SHORT', "LCH", lch_directory, file_patterns['TRADES_SHORT']['LCH'])
+        process_file_submission('TRADES_SHORT', "GFOX", gfox_directory, FILE_PATTERNS['TRADES_SHORT']['GFOX'])
+        process_file_submission('TRADES_SHORT', "LCH", lch_directory, FILE_PATTERNS['TRADES_SHORT']['LCH'])
 
     if st.button('Submit PRICES to DUCO'):
-        process_file_submission('PRICES', "GFOX", gfox_directory, file_patterns['PRICES']['GFOX'])
-        process_file_submission('PRICES', "LCH", lch_directory, file_patterns['PRICES']['LCH'])
+        process_file_submission('PRICES', "GFOX", gfox_directory, FILE_PATTERNS['PRICES']['GFOX'])
+        process_file_submission('PRICES', "LCH", lch_directory, FILE_PATTERNS['PRICES']['LCH'])
 
     if st.button('Submit INSTRUMENTS to DUCO'):
-        process_file_submission('INSTRUMENTS', "GFOX", gfox_directory, file_patterns['INSTRUMENTS']['GFOX'])
-        process_file_submission('INSTRUMENTS', "LCH", lch_directory, file_patterns['INSTRUMENTS']['LCH'])
- 
-# ------------------------------- Main Application -------------------------------
+        process_file_submission('INSTRUMENTS', "GFOX", gfox_directory, FILE_PATTERNS['INSTRUMENTS']['GFOX'])
+        process_file_submission('INSTRUMENTS', "LCH", lch_directory, FILE_PATTERNS['INSTRUMENTS']['LCH'])
 
-import streamlit as st
+# -------------------------- Main Application --------------------------
 
 def main():
     st.sidebar.title("LCH EOD DUCO Reconciliation")
-    
-    # Add a button that links to the DUCO process page
-    st.sidebar.link_button("Go to DUCO Processes", url="https://gfo-x.duco-app.com/processes")
 
-    # Radio buttons for process selection
-    app_choice = st.sidebar.radio("Choose a process to run:", 
-                                  ('GFOX EOD File Extraction', 'LCH EOD File Extraction', 'File Submission to DUCO'))
+    st.sidebar.markdown(f"[Go to DUCO Processes]({DUCO_PROCESSES_URL})")
+
+    app_choice = st.sidebar.radio("Choose a process to run:", ('GFOX EOD File Extraction', 'LCH EOD File Extraction', 'File Submission to DUCO'))
 
     if app_choice == 'GFOX EOD File Extraction':
         gfox_eod_file_extraction()
